@@ -1,7 +1,7 @@
 """Synthesis chain — takes analyzed findings and produces a research memo."""
 import yaml
 from pathlib import Path
-from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -32,7 +32,7 @@ Write a research memo based on these findings."""),
 
 
 def get_synthesis_chain():
-    llm = ChatAnthropic(model=_config["llm"]["model"], max_tokens=2048)
+    llm = ChatGoogleGenerativeAI(model=_config["llm"]["model"], max_output_tokens=2048)
     return _prompt | llm | StrOutputParser()
 
 

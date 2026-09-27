@@ -1,11 +1,12 @@
 """Day 1 hand-rolled agent loop: model call -> tool selection -> execution -> observation -> repeat."""
 import json
 import logging
-import anthropic
+from google import genai
+from google.genai import types
 import yaml
 from pathlib import Path
 
-from agent.tools import TOOL_SCHEMAS, TOOL_DISPATCH
+from agent.tools import _get_gemini_tools, TOOL_DISPATCH
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -14,9 +15,7 @@ _config_path = Path(__file__).parent.parent / "config.yaml"
 with open(_config_path) as f:
     _config = yaml.safe_load(f)
 
-_client = anthropic.Anthropic()
-_model = _config["llm"]["model"]
-_max_tokens = _config["llm"]["max_tokens"]
+_model_name = _config["llm"]["model"]
 
 SYSTEM_PROMPT = """You are a legal research assistant. Your job is to research case law relevant to a user's query.
 
@@ -35,15 +34,11 @@ Always cite cases you reference and note if any cases could not be fully analyze
 
 MAX_ITERATIONS = 15
 
+_client = genai.Client()
+
 
 def run_agent(query: str, on_event=None) -> str:
-    """Run the agent loop for a research query. Returns the final memo text.
-
-    Args:
-        query: The research query to investigate.
-        on_event: Optional callback(event_dict) for streaming agent events.
-    """
-    messages = [{"role": "user", "content": query}]
+    """Run the agent loop for a research query. Returns the final memo text."""
 
     def emit(event):
         if on_event:
@@ -52,41 +47,38 @@ def run_agent(query: str, on_event=None) -> str:
 
     emit({"type": "agent_start", "query": query})
 
+    chat = _client.chats.create(
+        model=_model_name,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            tools=[_get_gemini_tools()],
+        ),
+    )
+
+    response = chat.send_message(query)
+
     for iteration in range(MAX_ITERATIONS):
         emit({"type": "llm_call", "iteration": iteration + 1})
 
-        response = _client.messages.create(
-            model=_model,
-            max_tokens=_max_tokens,
-            system=SYSTEM_PROMPT,
-            tools=TOOL_SCHEMAS,
-            messages=messages,
-        )
+        function_calls = []
+        if response.candidates and response.candidates[0].content:
+            for part in response.candidates[0].content.parts:
+                if part.function_call and part.function_call.name:
+                    function_calls.append(part)
 
-        if response.stop_reason == "end_turn":
-            final_text = ""
-            for block in response.content:
-                if block.type == "text":
-                    final_text += block.text
+        if not function_calls:
+            final_text = response.text or ""
             emit({"type": "agent_done", "iterations": iteration + 1})
             return final_text
 
-        tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
-        if not tool_use_blocks:
-            final_text = ""
-            for block in response.content:
-                if block.type == "text":
-                    final_text += block.text
-            emit({"type": "agent_done", "iterations": iteration + 1})
-            return final_text
-
-        messages.append({"role": "assistant", "content": response.content})
-
-        tool_results = []
-        for tool_block in tool_use_blocks:
-            tool_name = tool_block.name
-            tool_input = tool_block.input
-            tool_id = tool_block.id
+        function_responses = []
+        for part in function_calls:
+            fc = part.function_call
+            tool_name = fc.name
+            tool_input = dict(fc.args) if fc.args else {}
+            for key, val in tool_input.items():
+                if isinstance(val, float) and val == int(val):
+                    tool_input[key] = int(val)
 
             emit({
                 "type": "tool_call",
@@ -104,20 +96,22 @@ def run_agent(query: str, on_event=None) -> str:
                 except Exception as e:
                     result = {"error": f"Tool execution failed: {str(e)}"}
 
+            is_error = "error" in result if isinstance(result, dict) else False
             emit({
                 "type": "tool_result",
                 "tool": tool_name,
                 "result_preview": json.dumps(result, default=str)[:300],
-                "is_error": "error" in result if isinstance(result, dict) else False,
+                "is_error": is_error,
             })
 
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": tool_id,
-                "content": json.dumps(result, default=str),
-            })
+            function_responses.append(
+                types.Part.from_function_response(
+                    name=tool_name,
+                    response={"result": json.dumps(result, default=str)},
+                )
+            )
 
-        messages.append({"role": "user", "content": tool_results})
+        response = chat.send_message(function_responses)
 
     emit({"type": "agent_done", "iterations": MAX_ITERATIONS, "reason": "max_iterations"})
     return "Research incomplete — maximum iterations reached."

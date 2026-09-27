@@ -13,7 +13,7 @@ worker:
   max_retries: 2
 
 llm:
-  model: "claude-sonnet-4-20250514"
+  model: "gemini-2.0-flash"
   max_tokens: 1024
 
 embedding:

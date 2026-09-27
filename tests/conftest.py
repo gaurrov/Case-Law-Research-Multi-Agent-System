@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-os.environ.setdefault("ANTHROPIC_API_KEY", "test-key")
+os.environ.setdefault("GOOGLE_API_KEY", "test-key")
 
 from db.models import Base, CaseCorpus, CaseEmbedding
 

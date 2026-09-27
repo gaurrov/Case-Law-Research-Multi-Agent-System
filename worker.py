@@ -10,15 +10,15 @@ import time
 import logging
 import threading
 import yaml
+from google import genai
+from google.genai import types
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from db.database import engine, SessionLocal
 from db.models import Base, ResearchQuery, CaseFinding, ResearchReport, AgentEvent
-from agent.tools import TOOL_DISPATCH, TOOL_SCHEMAS
+from agent.tools import TOOL_DISPATCH, _get_gemini_tools
 from embeddings.store import search as vector_search
-
-import anthropic
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -34,6 +34,8 @@ POLL_INTERVAL = _worker_config["poll_interval_seconds"]
 HEARTBEAT_INTERVAL = _worker_config["heartbeat_interval_seconds"]
 HEARTBEAT_TIMEOUT = _worker_config["heartbeat_timeout_seconds"]
 MAX_RETRIES = _worker_config["max_retries"]
+
+_genai_client = genai.Client()
 
 
 def _now():
@@ -121,8 +123,7 @@ def process_query(query_id: int):
 
 
 def _run_agent_loop(db, query: ResearchQuery):
-    """The actual agent loop with incremental DB writes."""
-    client = anthropic.Anthropic()
+    """The actual agent loop with incremental DB writes, using Gemini."""
     query_text = query.query_text
     query_id = query.id
 
@@ -139,7 +140,14 @@ Follow this workflow:
 If a tool returns an error, handle it gracefully — skip that case and continue with others.
 Always cite cases you reference and note if any cases could not be fully analyzed."""
 
-    messages = [{"role": "user", "content": query_text}]
+    chat = _genai_client.chats.create(
+        model=_llm_config["model"],
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            tools=[_get_gemini_tools()],
+        ),
+    )
+    response = chat.send_message(query_text)
 
     for iteration in range(15):
         if _check_cancellation(db, query_id):
@@ -150,45 +158,32 @@ Always cite cases you reference and note if any cases could not be fully analyze
 
         _log_event(db, query_id, "llm_call", tool_input={"iteration": iteration + 1})
 
-        response = client.messages.create(
-            model=_llm_config["model"],
-            max_tokens=_llm_config["max_tokens"],
-            system=system_prompt,
-            tools=TOOL_SCHEMAS,
-            messages=messages,
-        )
+        function_calls = []
+        if response.candidates and response.candidates[0].content:
+            for part in response.candidates[0].content.parts:
+                if part.function_call and part.function_call.name:
+                    function_calls.append(part)
 
-        if response.stop_reason == "end_turn":
-            memo_text = ""
-            for block in response.content:
-                if block.type == "text":
-                    memo_text += block.text
-
+        if not function_calls:
+            memo_text = response.text or ""
             _finalize_report(db, query, memo_text)
             return
 
-        tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
-        if not tool_use_blocks:
-            memo_text = ""
-            for block in response.content:
-                if block.type == "text":
-                    memo_text += block.text
-            _finalize_report(db, query, memo_text)
-            return
+        function_responses = []
 
-        messages.append({"role": "assistant", "content": response.content})
-        tool_results = []
-
-        for tool_block in tool_use_blocks:
+        for part in function_calls:
             if _check_cancellation(db, query_id):
                 query.status = "failed"
                 db.commit()
                 _log_event(db, query_id, "cancelled")
                 return
 
-            tool_name = tool_block.name
-            tool_input = tool_block.input
-            tool_id = tool_block.id
+            fc = part.function_call
+            tool_name = fc.name
+            tool_input = dict(fc.args) if fc.args else {}
+            for key, val in tool_input.items():
+                if isinstance(val, float) and val == int(val):
+                    tool_input[key] = int(val)
 
             case_id = tool_input.get("case_id", 0)
             idem_key = _idempotency_key(query_id, case_id, tool_name)
@@ -250,13 +245,14 @@ Always cite cases you reference and note if any cases could not be fully analyze
                         finding.status = "failed"
                     db.commit()
 
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": tool_id,
-                "content": json.dumps(result, default=str),
-            })
+            function_responses.append(
+                types.Part.from_function_response(
+                    name=tool_name,
+                    response={"result": json.dumps(result, default=str)},
+                )
+            )
 
-        messages.append({"role": "user", "content": tool_results})
+        response = chat.send_message(function_responses)
 
     query.status = "failed"
     db.commit()
@@ -270,7 +266,7 @@ def _finalize_report(db, query: ResearchQuery, memo_text: str):
 
     analyzed = [f.case_id for f in findings if f.status == "analyzed"]
     not_analyzed = [f.case_id for f in findings if f.status in ("failed", "timed_out", "pending")]
-    cited = analyzed  # conservative: cite only analyzed cases
+    cited = analyzed
 
     report = ResearchReport(
         query_id=query_id,

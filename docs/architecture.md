@@ -67,8 +67,8 @@ a research memo with verified citations.
 │  └─────────────┘    └──────────────┘    └─────────┬───────────┘     │
 │         │                                         │                  │
 │  ┌──────▼──────┐    ┌──────────────┐    ┌─────────▼───────────┐     │
-│  │ Reaper      │    │ Heartbeat    │    │ Anthropic API       │     │
-│  │ (stuck jobs)│    │ Thread (5s)  │    │ (claude-sonnet)     │     │
+│  │ Reaper      │    │ Heartbeat    │    │ Gemini API       │     │
+│  │ (stuck jobs)│    │ Thread (5s)  │    │ (gemini-2.0-flash)  │     │
 │  └─────────────┘    └──────────────┘    └─────────────────────┘     │
 │                                                                      │
 │  Durable execution features:                                         │
@@ -156,10 +156,10 @@ successfully analyzed. `cases_not_analyzed` transparently lists failures/timeout
 ### Day 1: Hand-Rolled Agent Loop (agent/loop.py)
 
 The agent loop follows a simple pattern:
-1. Send the query to Claude with available tool schemas
-2. If Claude returns tool_use blocks, execute each tool
+1. Send the query to Gemini with available tool schemas
+2. If Gemini returns function_call parts, execute each tool
 3. Pass tool results back as observations
-4. Repeat until Claude returns end_turn (the final memo)
+4. Repeat until Gemini returns a text response with no function calls (the final memo)
 
 Tools:
 - `search_cases(query, top_k)` — cosine similarity search over Chroma embeddings
@@ -174,8 +174,8 @@ The agent sees the error and adapts (skips bad cases, tries alternatives).
 
 Three LCEL chains replace the raw tool logic:
 - **Retrieval chain**: LangChain Chroma wrapper → deduplicated candidate list
-- **Analysis chain**: ChatPromptTemplate → ChatAnthropic → Pydantic CaseAnalysis output
-- **Synthesis chain**: ChatPromptTemplate → ChatAnthropic → StrOutputParser → memo text
+- **Analysis chain**: ChatPromptTemplate → ChatGoogleGenerativeAI → Pydantic CaseAnalysis output
+- **Synthesis chain**: ChatPromptTemplate → ChatGoogleGenerativeAI → StrOutputParser → memo text
 
 The orchestrator (`chains/orchestrator.py`) ties them together:
 1. Retrieve candidates

@@ -5,7 +5,7 @@ A multi-agent legal research system that searches, analyzes, and synthesizes cas
 ## Architecture
 
 ```
-Client → FastAPI → SQLite (job queue) → Worker → Agent Loop → Anthropic API
+Client → FastAPI → SQLite (job queue) → Worker → Agent Loop → Gemini API
                                                       ↕
                                               Chroma (vector search)
 ```
@@ -16,7 +16,7 @@ See [docs/architecture.md](docs/architecture.md) for the full 3-page architectur
 
 ### Prerequisites
 - Python 3.11+
-- An Anthropic API key
+- A Google Gemini API key
 
 ### Installation
 
@@ -33,9 +33,9 @@ source venv/bin/activate      # Linux/Mac
 pip install -r requirements.txt
 
 # Set your API key
-export ANTHROPIC_API_KEY="your-key-here"
-# set ANTHROPIC_API_KEY=your-key-here       # Windows cmd
-# $env:ANTHROPIC_API_KEY="your-key-here"    # Windows PowerShell
+export GOOGLE_API_KEY="your-key-here"
+# set GOOGLE_API_KEY=your-key-here       # Windows cmd
+# $env:GOOGLE_API_KEY="your-key-here"    # Windows PowerShell
 ```
 
 ### Seed the Database & Build Embeddings

@@ -1,5 +1,7 @@
 """Day 1 agent tools — plain functions with clear input/output schemas."""
-import anthropic
+import json
+from google import genai
+from google.genai import types
 import yaml
 from pathlib import Path
 
@@ -11,18 +13,18 @@ _config_path = Path(__file__).parent.parent / "config.yaml"
 with open(_config_path) as f:
     _config = yaml.safe_load(f)
 
-_llm_client = anthropic.Anthropic()
 _llm_model = _config["llm"]["model"]
+_genai_client = genai.Client()
 
 TOOL_SCHEMAS = [
     {
         "name": "search_cases",
         "description": "Search the case law corpus for cases relevant to a query. Returns a list of matching cases with snippets and relevance scores.",
-        "input_schema": {
-            "type": "object",
+        "parameters": {
+            "type": "OBJECT",
             "properties": {
-                "query": {"type": "string", "description": "The legal research query"},
-                "top_k": {"type": "integer", "description": "Number of results to return", "default": 5},
+                "query": {"type": "STRING", "description": "The legal research query"},
+                "top_k": {"type": "INTEGER", "description": "Number of results to return"},
             },
             "required": ["query"],
         },
@@ -30,10 +32,10 @@ TOOL_SCHEMAS = [
     {
         "name": "get_case_text",
         "description": "Retrieve the full text of a specific case by its ID.",
-        "input_schema": {
-            "type": "object",
+        "parameters": {
+            "type": "OBJECT",
             "properties": {
-                "case_id": {"type": "integer", "description": "The database ID of the case"},
+                "case_id": {"type": "INTEGER", "description": "The database ID of the case"},
             },
             "required": ["case_id"],
         },
@@ -41,11 +43,11 @@ TOOL_SCHEMAS = [
     {
         "name": "analyze_relevance",
         "description": "Analyze how relevant a specific case is to a research query using LLM analysis. Returns a relevance score and note.",
-        "input_schema": {
-            "type": "object",
+        "parameters": {
+            "type": "OBJECT",
             "properties": {
-                "case_id": {"type": "integer", "description": "The database ID of the case"},
-                "query": {"type": "string", "description": "The research query to evaluate against"},
+                "case_id": {"type": "INTEGER", "description": "The database ID of the case"},
+                "query": {"type": "STRING", "description": "The research query to evaluate against"},
             },
             "required": ["case_id", "query"],
         },
@@ -53,15 +55,27 @@ TOOL_SCHEMAS = [
     {
         "name": "validate_citation",
         "description": "Check whether a case ID exists in the corpus. Returns true if valid, false otherwise.",
-        "input_schema": {
-            "type": "object",
+        "parameters": {
+            "type": "OBJECT",
             "properties": {
-                "case_id": {"type": "integer", "description": "The database ID of the case to validate"},
+                "case_id": {"type": "INTEGER", "description": "The database ID of the case to validate"},
             },
             "required": ["case_id"],
         },
     },
 ]
+
+
+def _get_gemini_tools() -> types.Tool:
+    """Convert TOOL_SCHEMAS to a Gemini Tool with FunctionDeclarations."""
+    declarations = []
+    for schema in TOOL_SCHEMAS:
+        declarations.append(types.FunctionDeclaration(
+            name=schema["name"],
+            description=schema["description"],
+            parameters=schema["parameters"],
+        ))
+    return types.Tool(function_declarations=declarations)
 
 
 def search_cases(query: str, top_k: int = 5) -> list[dict]:
@@ -129,12 +143,11 @@ Respond in exactly this format:
 SCORE: <number>
 NOTE: <explanation>"""
 
-    response = _llm_client.messages.create(
+    response = _genai_client.models.generate_content(
         model=_llm_model,
-        max_tokens=300,
-        messages=[{"role": "user", "content": prompt}],
+        contents=prompt,
     )
-    text = response.content[0].text
+    text = response.text
 
     score = 0.5
     note = text

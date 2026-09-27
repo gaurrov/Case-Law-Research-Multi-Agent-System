@@ -2,7 +2,7 @@
 import yaml
 from pathlib import Path
 from pydantic import BaseModel, Field
-from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
 _config_path = Path(__file__).parent.parent / "config.yaml"
@@ -33,7 +33,7 @@ Analyze the relevance of this case to the research query."""),
 
 
 def get_analysis_chain():
-    llm = ChatAnthropic(model=_config["llm"]["model"], max_tokens=300)
+    llm = ChatGoogleGenerativeAI(model=_config["llm"]["model"], max_output_tokens=300)
     return _prompt | llm.with_structured_output(CaseAnalysis)
 
 
