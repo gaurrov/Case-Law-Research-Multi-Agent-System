@@ -5,6 +5,9 @@ results, sends heartbeats, and handles stuck/failed jobs.
 
 Run as: python worker.py
 """
+from dotenv import load_dotenv
+load_dotenv()
+
 import json
 import time
 import logging

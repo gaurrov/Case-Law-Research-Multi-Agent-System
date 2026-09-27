@@ -4,6 +4,9 @@ Usage:
     python agent_cli.py "what cases discuss employee privacy rights"
     python agent_cli.py --demo  # runs the demo with induced failure
 """
+from dotenv import load_dotenv
+load_dotenv()
+
 import sys
 import json
 import logging
