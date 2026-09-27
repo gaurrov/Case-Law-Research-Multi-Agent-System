@@ -1,0 +1,29 @@
+retrieval:
+  top_k: 5
+  relevance_threshold: 0.4
+
+analysis:
+  max_concurrency: 3
+  per_task_timeout_seconds: 30
+
+worker:
+  poll_interval_seconds: 2
+  heartbeat_interval_seconds: 5
+  heartbeat_timeout_seconds: 30
+  max_retries: 2
+
+llm:
+  model: "claude-sonnet-4-20250514"
+  max_tokens: 1024
+
+embedding:
+  model: "all-MiniLM-L6-v2"
+  chroma_persist_dir: "./chroma_data"
+
+database:
+  url: "sqlite:///case_law.db"
+
+auth:
+  api_keys:
+    researcher-key-001: "user_1"
+    researcher-key-002: "user_2"

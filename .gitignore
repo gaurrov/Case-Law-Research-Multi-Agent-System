@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+case_law.db
+test_case_law.db
+chroma_data/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
